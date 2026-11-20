@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <title>TRIP XR — Mixed Reality Journey</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="overlay">
+      <div class="card">
+        <div class="badge">QUEST 3 · WEBXR MIXED REALITY</div>
+        <h1>TRIP <span class="accent">XR</span></h1>
+        <p class="subtitle">
+          Begin in je eigen kamer. Pak het flesje op en drink het — en kijk hoe de realiteit langzaam overgroeit.
+        </p>
+
+        <div class="actions">
+          <button id="btn-xr" class="primary" disabled>Checking WebXR…</button>
+          <button id="btn-desktop" class="secondary">Desktop Preview</button>
+        </div>
+
+        <p id="status-line" class="status">Initialiseren…</p>
+
+        <div class="hints">
+          <span><strong>Quest 3:</strong> Hand tracking &amp; Room Mesh actief — pak het flesje en breng het naar je mond.</span>
+          <span><strong>Desktop:</strong> Sleep om rond te kijken · Klik op het flesje om te drinken · Beweeg muis door de sporen.</span>
+        </div>
+      </div>
+    </div>
+
+    <div id="hud" class="hidden">
+      <div id="hud-phase">PROLOOG · DE KAMER</div>
+      <div id="hud-tip">Pak het flesje en breng het naar je mond</div>
+      <div id="hud-debug"></div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
