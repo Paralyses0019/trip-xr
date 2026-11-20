@@ -40,11 +40,17 @@ const liquidFragmentShader = /* glsl */ `
     vec3 col = mix(deepTeal, violet, swirl);
     col = mix(col, gold, fresnel * 0.75);
 
-    // Bright surface meniscus glow
+    // Bright surface meniscus glow + rising luminous micro-bubbles
     float topGlow = smoothstep(maxY - 0.014, maxY + 0.002, vLocalPos.y);
-    col += vec3(0.35, 1.0, 0.9) * topGlow * 0.65;
+    float bubbleAngle = atan(vLocalPos.z, vLocalPos.x);
+    float bubbleCell = sin(bubbleAngle * 11.0 + vLocalPos.y * 90.0 - uTime * 5.2) *
+                       cos(bubbleAngle * 7.0 - vLocalPos.y * 120.0 + uTime * 3.8);
+    float bubbles = smoothstep(0.76, 0.96, bubbleCell) * (1.0 - topGlow);
 
-    gl_FragColor = vec4(col * 1.25, 0.92);
+    col += vec3(0.35, 1.0, 0.9) * topGlow * 0.72;
+    col += vec3(1.0, 0.95, 0.75) * bubbles * 0.95;
+
+    gl_FragColor = vec4(col * 1.32, 0.94);
   }
 `;
 

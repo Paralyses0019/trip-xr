@@ -4,6 +4,7 @@ import { CosmicCathedral } from './scene/CosmicCathedral';
 import { ElixirBottle } from './scene/ElixirBottle';
 import { EpilogueBlossom } from './scene/EpilogueBlossom';
 import { GeometricLabyrinth } from './scene/GeometricLabyrinth';
+import { HandTrails } from './scene/HandTrails';
 import { SporeField } from './scene/SporeField';
 import { HandTrackerState, HandVisuals } from './xr/HandVisuals';
 import { RoomMeshManager } from './xr/RoomMeshManager';
@@ -58,6 +59,7 @@ const sporeField = new SporeField();
 const labyrinth = new GeometricLabyrinth();
 const cathedral = new CosmicCathedral();
 const blossom = new EpilogueBlossom();
+const handTrails = new HandTrails();
 const handVisuals = new HandVisuals(renderer);
 
 scene.add(roomManager.group);
@@ -66,6 +68,7 @@ scene.add(sporeField.group);
 scene.add(labyrinth.group);
 scene.add(cathedral.group);
 scene.add(blossom.group);
+scene.add(handTrails.group);
 scene.add(handVisuals.group);
 
 // --- State ---
@@ -537,20 +540,32 @@ renderer.setAnimationLoop((_time: number, frame?: XRFrame) => {
     roomManager.uniforms.uHandRightActive.value = 0.0;
   }
 
-  // 5. Update Prologue Bottle & Chapter 1 Spores
+  // 5. Update Prologue Bottle, Hand Trails & Chapter 1 Spores (all audio-reactive!)
+  const audioEnergy = audio.getAudioEnergy();
+
   bottle.update(elapsed, dt, camera);
   bottleLight.position.copy(bottle.group.position);
-  bottleLight.intensity = bottle.isDrunk ? 0.3 + weights.ch1Weight * 1.2 : 1.15;
+  bottleLight.intensity = bottle.isDrunk ? 0.3 + weights.ch1Weight * 1.2 + audioEnergy * 0.5 : 1.15;
 
-  const stirEnergy = sporeField.update(elapsed, dt, weights.ch1Progress, weights.ch1Weight, activeLeft, activeRight);
+  handTrails.update(dt, elapsed, activeLeft, activeRight);
+
+  const stirEnergy = sporeField.update(
+    elapsed,
+    dt,
+    weights.ch1Progress,
+    weights.ch1Weight,
+    audioEnergy,
+    activeLeft,
+    activeRight
+  );
   if (stirEnergy > 0.12) {
     audio.playSporeChime(stirEnergy);
   }
 
   // 6. Update Chapter 2 (Geometric Labyrinth) & Chapter 3 (Cosmic Cathedral) & Epilogue
-  labyrinth.update(elapsed, dt, weights.ch2Weight, weights.voidOpacity, activeLeft, activeRight);
+  labyrinth.update(elapsed, dt, weights.ch2Weight, weights.voidOpacity, audioEnergy, activeLeft, activeRight);
 
-  const unleashedShockwave = cathedral.update(elapsed, dt, weights.ch3Weight, activeLeft, activeRight);
+  const unleashedShockwave = cathedral.update(elapsed, dt, weights.ch3Weight, audioEnergy, activeLeft, activeRight);
   if (unleashedShockwave) {
     audio.playShockwaveBoom();
   }

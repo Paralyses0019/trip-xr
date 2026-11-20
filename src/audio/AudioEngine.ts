@@ -8,6 +8,9 @@
 export class AudioEngine {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
+  private analyser: AnalyserNode | null = null;
+  private freqData: Uint8Array<ArrayBuffer> | null = null;
+  private smoothedEnergy = 0;
   private droneFilter: BiquadFilterNode | null = null;
   private droneGain: GainNode | null = null;
   private started = false;
@@ -30,10 +33,34 @@ export class AudioEngine {
     this.ctx = new AudioCtx();
     this.masterGain = this.ctx.createGain();
     this.masterGain.gain.value = 0.7;
-    this.masterGain.connect(this.ctx.destination);
+
+    this.analyser = this.ctx.createAnalyser();
+    this.analyser.fftSize = 128;
+    this.analyser.smoothingTimeConstant = 0.82;
+    this.freqData = new Uint8Array(new ArrayBuffer(this.analyser.frequencyBinCount));
+
+    this.masterGain.connect(this.analyser);
+    this.analyser.connect(this.ctx.destination);
 
     this.setupDrone();
     this.started = true;
+  }
+
+  /**
+   * Returns real-time smoothed audio energy (0..1) for audio-reactive shaders
+   */
+  public getAudioEnergy(): number {
+    if (!this.analyser || !this.freqData) return 0;
+    this.analyser.getByteFrequencyData(this.freqData);
+    let sum = 0;
+    // Focus on low-to-mid bins where our synth drone, bass drops & chimes live
+    const bins = Math.min(28, this.freqData.length);
+    for (let i = 0; i < bins; i++) {
+      sum += this.freqData[i];
+    }
+    const raw = Math.min(1, sum / (bins * 115));
+    this.smoothedEnergy += (raw - this.smoothedEnergy) * 0.16;
+    return this.smoothedEnergy;
   }
 
   private setupDrone(): void {
