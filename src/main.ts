@@ -1,11 +1,19 @@
 import * as THREE from 'three';
 import { AudioEngine } from './audio/AudioEngine';
+import { CosmicCathedral } from './scene/CosmicCathedral';
 import { ElixirBottle } from './scene/ElixirBottle';
+import { EpilogueBlossom } from './scene/EpilogueBlossom';
+import { GeometricLabyrinth } from './scene/GeometricLabyrinth';
 import { SporeField } from './scene/SporeField';
-import { HandVisuals, HandTrackerState } from './xr/HandVisuals';
+import { HandTrackerState, HandVisuals } from './xr/HandVisuals';
 import { RoomMeshManager } from './xr/RoomMeshManager';
 
-type ExperiencePhase = 'idle' | 'prologue' | 'drinking' | 'chapter1';
+type ExperiencePhase = 'idle' | 'prologue' | 'drinking' | 'chapter1' | 'chapter2' | 'chapter3' | 'epilogue';
+
+// Timeline boundaries in seconds after drinking the elixir (~2.5 min full experience)
+const T_CH1_END = 36;
+const T_CH2_END = 82;
+const T_CH3_END = 136;
 
 const overlayEl = document.getElementById('overlay') as HTMLDivElement;
 const btnXr = document.getElementById('btn-xr') as HTMLButtonElement;
@@ -15,6 +23,8 @@ const hudEl = document.getElementById('hud') as HTMLDivElement;
 const hudPhase = document.getElementById('hud-phase') as HTMLDivElement;
 const hudTip = document.getElementById('hud-tip') as HTMLDivElement;
 const hudDebug = document.getElementById('hud-debug') as HTMLDivElement;
+const chapterBar = document.getElementById('chapter-bar') as HTMLDivElement;
+const chapterButtons = Array.from(chapterBar.querySelectorAll<HTMLButtonElement>('button[data-jump]'));
 
 // --- Renderer & Scene ---
 const renderer = new THREE.WebGLRenderer({
@@ -30,14 +40,14 @@ renderer.xr.enabled = true;
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(68, window.innerWidth / window.innerHeight, 0.05, 40);
+const camera = new THREE.PerspectiveCamera(68, window.innerWidth / window.innerHeight, 0.05, 50);
 camera.position.set(0, 1.48, 0);
 
-// Subtle lighting for glass bottle & sprouting flora
-const hemiLight = new THREE.HemisphereLight(0x9be7ff, 0x1a1033, 1.1);
+// Lighting for glass bottle, flora & geometric rings
+const hemiLight = new THREE.HemisphereLight(0x9be7ff, 0x1a1033, 1.15);
 scene.add(hemiLight);
 
-const bottleLight = new THREE.PointLight(0x5eead4, 1.2, 3.0);
+const bottleLight = new THREE.PointLight(0x5eead4, 1.2, 4.0);
 scene.add(bottleLight);
 
 // --- Core Modules ---
@@ -45,22 +55,28 @@ const audio = new AudioEngine();
 const roomManager = new RoomMeshManager();
 const bottle = new ElixirBottle();
 const sporeField = new SporeField();
+const labyrinth = new GeometricLabyrinth();
+const cathedral = new CosmicCathedral();
+const blossom = new EpilogueBlossom();
 const handVisuals = new HandVisuals(renderer);
 
 scene.add(roomManager.group);
 scene.add(bottle.group);
 scene.add(sporeField.group);
+scene.add(labyrinth.group);
+scene.add(cathedral.group);
+scene.add(blossom.group);
 scene.add(handVisuals.group);
 
 // --- State ---
 let phase: ExperiencePhase = 'idle';
 let isDesktopMode = false;
-let tripProgress = 0; // 0..1 for Chapter 1 overgrowth
+let tripTime = 0; // seconds since elixir was drunk
 let grabbedBy: 'left' | 'right' | null = null;
 let lastDrinkSoundTime = 0;
 let bottlePlacedForXR = false;
 
-// Desktop preview interaction helpers
+// Desktop preview controls
 const raycaster = new THREE.Raycaster();
 const pointerNDC = new THREE.Vector2();
 const desktopHandPos = new THREE.Vector3(0, -10, 0);
@@ -70,7 +86,7 @@ let dragMoved = false;
 let prevPointerX = 0;
 let prevPointerY = 0;
 let yaw = 0;
-let pitch = -0.08;
+let pitch = -0.06;
 
 const camWorldPos = new THREE.Vector3();
 const clock = new THREE.Clock();
@@ -137,11 +153,13 @@ btnXr.addEventListener('click', async () => {
     isDesktopMode = false;
     bottlePlacedForXR = false;
     phase = 'prologue';
-    tripProgress = 0;
+    tripTime = 0;
+    bottle.reset();
     roomManager.onXRSessionStart();
 
     overlayEl.classList.add('hidden');
     hudEl.classList.add('hidden');
+    chapterBar.classList.add('hidden');
 
     session.addEventListener('end', () => {
       phase = 'idle';
@@ -158,34 +176,50 @@ btnDesktop.addEventListener('click', () => {
   audio.init();
   isDesktopMode = true;
   phase = 'prologue';
-  tripProgress = 0;
+  tripTime = 0;
 
   renderer.setClearColor(0x05070d, 1);
   roomManager.setDesktopMode(true);
   bottle.restPosition.set(0, 1.24, -0.78);
-  bottle.group.position.copy(bottle.restPosition);
+  bottle.reset();
 
   overlayEl.classList.add('hidden');
   hudEl.classList.remove('hidden');
+  chapterBar.classList.remove('hidden');
   updateHud();
 });
 
 function updateHud(): void {
+  const activeKey = phase === 'drinking' ? 'prologue' : phase;
+  chapterButtons.forEach((b) => {
+    b.classList.toggle('active', b.dataset.jump === activeKey);
+  });
+
   if (phase === 'prologue') {
-    hudPhase.textContent = 'PROLOOG · DE KAMER';
+    hudPhase.textContent = '1 · PROLOOG — DE KAMER';
     hudTip.textContent = 'Klik op het DRINK ME flesje om te beginnen · Sleep om rond te kijken';
   } else if (phase === 'drinking') {
-    hudPhase.textContent = 'PROLOOG · DRINKING…';
+    hudPhase.textContent = '1 · PROLOOG — DRINKING…';
     hudTip.textContent = 'De vloeistof werkt in…';
   } else if (phase === 'chapter1') {
-    hudPhase.textContent = 'HOOFDSTUK 1 · OVERGROEI';
-    hudTip.textContent = 'Beweeg je muis (of handen op Quest) door de sporen & over de muren';
+    hudPhase.textContent = '2 · HOOFDSTUK 1 — OVERGROEI';
+    hudTip.textContent = 'Beweeg je muis / handen door de sporen en over de muren';
+  } else if (phase === 'chapter2') {
+    hudPhase.textContent = '3 · HOOFDSTUK 2 — DE BREUK (ESCHER)';
+    hudTip.textContent = 'Dirigeer de architectuur door je muis / handen te bewegen';
+  } else if (phase === 'chapter3') {
+    hudPhase.textContent = '4 · HOOFDSTUK 3 — DE KATHEDRAAL (KOSMOS)';
+    hudTip.textContent = 'Klik of druk Spatie (Quest: handen samen → open) voor een kosmische schokgolf';
+  } else if (phase === 'epilogue') {
+    hudPhase.textContent = '5 · EPILOOG — DE LANDING';
+    hudTip.textContent = 'Terug in je echte kamer — één lichtgevende herinnering blijft achter';
   }
 }
 
 function triggerTripStart(origin: THREE.Vector3): void {
-  if (phase === 'chapter1') return;
+  if (phase !== 'prologue' && phase !== 'drinking') return;
   phase = 'chapter1';
+  tripTime = 0;
   bottle.isDrunk = true;
   bottle.isGrabbed = false;
   grabbedBy = null;
@@ -195,9 +229,68 @@ function triggerTripStart(origin: THREE.Vector3): void {
   updateHud();
 }
 
+function jumpToChapter(target: string): void {
+  if (!isDesktopMode) return;
+  audio.init();
+  roomManager.uniforms.uOrigin.value.copy(camera.position);
+
+  if (target === 'prologue') {
+    phase = 'prologue';
+    tripTime = 0;
+    bottle.reset();
+    audio.setChapterMood(0, 0, 0, 0);
+  } else if (target === 'chapter1') {
+    phase = 'chapter1';
+    tripTime = 1.0;
+    bottle.isDrunk = true;
+    bottle.group.visible = false;
+    audio.playTripStart();
+  } else if (target === 'chapter2') {
+    phase = 'chapter2';
+    tripTime = T_CH1_END + 2.0;
+    bottle.isDrunk = true;
+    bottle.group.visible = false;
+  } else if (target === 'chapter3') {
+    phase = 'chapter3';
+    tripTime = T_CH2_END + 2.0;
+    bottle.isDrunk = true;
+    bottle.group.visible = false;
+  } else if (target === 'epilogue') {
+    phase = 'epilogue';
+    tripTime = T_CH3_END + 3.0;
+    bottle.isDrunk = true;
+    bottle.group.visible = false;
+  }
+  updateHud();
+}
+
+chapterButtons.forEach((btn) => {
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const target = btn.dataset.jump;
+    if (target) jumpToChapter(target);
+  });
+});
+
+// Keyboard shortcuts (1-5 to jump chapters, Space for shockwave in Chapter 3)
+window.addEventListener('keydown', (e) => {
+  if (!isDesktopMode || phase === 'idle') return;
+  if (e.key === '1') jumpToChapter('prologue');
+  else if (e.key === '2') jumpToChapter('chapter1');
+  else if (e.key === '3') jumpToChapter('chapter2');
+  else if (e.key === '4') jumpToChapter('chapter3');
+  else if (e.key === '5') jumpToChapter('epilogue');
+  else if (e.code === 'Space' && phase === 'chapter3') {
+    e.preventDefault();
+    cathedral.triggerShockwave();
+    audio.playShockwaveBoom();
+  }
+});
+
 // --- Desktop Pointer & Camera Controls ---
 window.addEventListener('pointerdown', (e) => {
   if (!isDesktopMode || phase === 'idle') return;
+  if ((e.target as HTMLElement).closest('#chapter-bar')) return;
   isDragging = true;
   dragMoved = false;
   prevPointerX = e.clientX;
@@ -220,18 +313,21 @@ window.addEventListener('pointermove', (e) => {
     prevPointerY = e.clientY;
   }
 
-  // Project cursor ~1.1m into the scene as a virtual "hand" to stir spores & touch walls
   raycaster.setFromCamera(pointerNDC, camera);
-  raycaster.ray.at(1.15, desktopHandPos);
+  raycaster.ray.at(1.25, desktopHandPos);
   desktopHandActive = true;
 });
 
 window.addEventListener('pointerup', (e) => {
   if (!isDesktopMode || phase === 'idle') return;
+  if ((e.target as HTMLElement).closest('#chapter-bar')) return;
+
   const wasClick = !dragMoved;
   isDragging = false;
 
-  if (wasClick && phase === 'prologue') {
+  if (!wasClick) return;
+
+  if (phase === 'prologue') {
     pointerNDC.x = (e.clientX / window.innerWidth) * 2 - 1;
     pointerNDC.y = -(e.clientY / window.innerHeight) * 2 + 1;
     raycaster.setFromCamera(pointerNDC, camera);
@@ -240,6 +336,9 @@ window.addEventListener('pointerup', (e) => {
       phase = 'drinking';
       updateHud();
     }
+  } else if (phase === 'chapter3') {
+    cathedral.triggerShockwave();
+    audio.playShockwaveBoom();
   }
 });
 
@@ -265,19 +364,14 @@ function updateXRInteraction(dt: number, elapsed: number): void {
     }
 
     const distToBottle = hand.position.distanceTo(bottle.group.position);
-
-    // Grab if pinching near bottle OR gently cradling bottle with open palm
     if (!grabbedBy && ((hand.pinching && distToBottle < 0.16) || distToBottle < 0.095)) {
       grabbedBy = side;
       bottle.isGrabbed = true;
     }
 
-    // Release if hand moves far or stops pinching when away from mouth
-    if (grabbedBy === side) {
-      if (!hand.pinching && distToBottle > 0.18) {
-        grabbedBy = null;
-        bottle.isGrabbed = false;
-      }
+    if (grabbedBy === side && !hand.pinching && distToBottle > 0.18) {
+      grabbedBy = null;
+      bottle.isGrabbed = false;
     }
   };
 
@@ -288,7 +382,6 @@ function updateXRInteraction(dt: number, elapsed: number): void {
     const activeHand = grabbedBy === 'left' ? handVisuals.left : handVisuals.right;
     bottle.group.position.lerp(activeHand.position, Math.min(1, dt * 16));
 
-    // Check distance to mouth/head (slightly below eyes)
     const mouthPos = camWorldPos.clone();
     mouthPos.y -= 0.08;
     const distToMouth = bottle.group.position.distanceTo(mouthPos);
@@ -312,6 +405,34 @@ function updateXRInteraction(dt: number, elapsed: number): void {
   }
 }
 
+// --- Compute smooth chapter blend weights from tripTime ---
+function computeChapterWeights(t: number) {
+  // Chapter 1: Overgrowth ramps up 0..14s, stays full, fades out 32..40s
+  const ch1Progress = THREE.MathUtils.clamp(t / 14.0, 0, 1);
+  const ch1FadeOut = 1.0 - THREE.MathUtils.smoothstep(t, T_CH1_END - 4, T_CH1_END + 4);
+  const ch1Weight = ch1Progress > 0 ? ch1FadeOut : 0;
+
+  // Chapter 2: Escher Labyrinth fades in 33..41s, fades out 78..86s
+  const ch2In = THREE.MathUtils.smoothstep(t, T_CH1_END - 3, T_CH1_END + 5);
+  const ch2Out = 1.0 - THREE.MathUtils.smoothstep(t, T_CH2_END - 4, T_CH2_END + 4);
+  const ch2Weight = ch2In * ch2Out;
+
+  // Chapter 3: Cosmic Cathedral fades in 78..87s, fades out 130..140s
+  const ch3In = THREE.MathUtils.smoothstep(t, T_CH2_END - 4, T_CH2_END + 5);
+  const ch3Out = 1.0 - THREE.MathUtils.smoothstep(t, T_CH3_END - 6, T_CH3_END + 4);
+  const ch3Weight = ch3In * ch3Out;
+
+  // VR Void Dome stays solid across Chapter 2 & 3, then dissolves back to Passthrough in Epilogue
+  const voidOpacity =
+    THREE.MathUtils.smoothstep(t, T_CH1_END - 2, T_CH1_END + 6) *
+    (1.0 - THREE.MathUtils.smoothstep(t, T_CH3_END - 4, T_CH3_END + 6));
+
+  // Epilogue Blossom blooms softly as real room returns
+  const epilogueWeight = THREE.MathUtils.smoothstep(t, T_CH3_END, T_CH3_END + 7);
+
+  return { ch1Progress, ch1Weight, ch2Weight, ch3Weight, voidOpacity, epilogueWeight };
+}
+
 // --- Main Render Loop ---
 renderer.setAnimationLoop((_time: number, frame?: XRFrame) => {
   const dt = Math.min(clock.getDelta(), 0.05);
@@ -331,12 +452,10 @@ renderer.setAnimationLoop((_time: number, frame?: XRFrame) => {
     handVisuals.updateXR(frame, refSpace, dt);
     updateXRInteraction(dt, elapsed);
   } else if (isDesktopMode) {
-    // Desktop camera look
     camera.rotation.order = 'YXZ';
     camera.rotation.y = yaw;
     camera.rotation.x = pitch;
 
-    // Desktop automatic drinking animation after clicking bottle
     if (phase === 'drinking') {
       const targetPos = new THREE.Vector3(0, 1.38, -0.32);
       bottle.group.position.lerp(targetPos, Math.min(1, dt * 4));
@@ -354,13 +473,35 @@ renderer.setAnimationLoop((_time: number, frame?: XRFrame) => {
     }
   }
 
-  // 2. Advance Chapter 1 overgrowth smoothly
-  if (phase === 'chapter1') {
-    tripProgress = Math.min(1.0, tripProgress + dt * 0.075);
-    audio.setTripIntensity(tripProgress);
+  // 2. Advance experience timeline once elixir is drunk
+  const isTripping = phase === 'chapter1' || phase === 'chapter2' || phase === 'chapter3' || phase === 'epilogue';
+  if (isTripping) {
+    tripTime += dt;
+
+    const nextPhase: ExperiencePhase =
+      tripTime < T_CH1_END
+        ? 'chapter1'
+        : tripTime < T_CH2_END
+          ? 'chapter2'
+          : tripTime < T_CH3_END
+            ? 'chapter3'
+            : 'epilogue';
+
+    if (nextPhase !== phase) {
+      phase = nextPhase;
+      updateHud();
+    }
   }
 
-  // 3. Feed hand positions into Room Shader & Spore Field
+  const weights = isTripping
+    ? computeChapterWeights(tripTime)
+    : { ch1Progress: 0, ch1Weight: 0, ch2Weight: 0, ch3Weight: 0, voidOpacity: 0, epilogueWeight: 0 };
+
+  if (isTripping) {
+    audio.setChapterMood(weights.ch1Weight, weights.ch2Weight, weights.ch3Weight, weights.epilogueWeight);
+  }
+
+  // 3. Active hand positions (XR or Desktop virtual pointer)
   let activeLeft: THREE.Vector3 | null = null;
   let activeRight: THREE.Vector3 | null = null;
 
@@ -371,8 +512,14 @@ renderer.setAnimationLoop((_time: number, frame?: XRFrame) => {
     activeRight = desktopHandPos;
   }
 
+  // 4. Update Room Overgrowth (Chapter 1)
+  // Hide desktop fallback room shell while fully inside VR Chapters 2 & 3 so the infinite cosmos is unobstructed
+  if (isDesktopMode) {
+    roomManager.group.visible = weights.voidOpacity < 0.88;
+  }
   roomManager.uniforms.uTime.value = elapsed;
-  roomManager.uniforms.uProgress.value = tripProgress;
+  roomManager.uniforms.uProgress.value = weights.ch1Progress;
+  roomManager.uniforms.uVisibility.value = weights.ch1Weight;
 
   if (activeLeft) {
     roomManager.uniforms.uHandLeft.value.copy(activeLeft);
@@ -388,18 +535,28 @@ renderer.setAnimationLoop((_time: number, frame?: XRFrame) => {
     roomManager.uniforms.uHandRightActive.value = 0.0;
   }
 
-  // 4. Update bottle, light & hand-reactive spores
+  // 5. Update Prologue Bottle & Chapter 1 Spores
   bottle.update(elapsed, dt, camera);
   bottleLight.position.copy(bottle.group.position);
-  bottleLight.intensity = bottle.isDrunk ? 0.2 + tripProgress * 1.4 : 1.15;
+  bottleLight.intensity = bottle.isDrunk ? 0.3 + weights.ch1Weight * 1.2 : 1.15;
 
-  const stirEnergy = sporeField.update(elapsed, dt, tripProgress, activeLeft, activeRight);
+  const stirEnergy = sporeField.update(elapsed, dt, weights.ch1Progress, weights.ch1Weight, activeLeft, activeRight);
   if (stirEnergy > 0.12) {
     audio.playSporeChime(stirEnergy);
   }
 
+  // 6. Update Chapter 2 (Geometric Labyrinth) & Chapter 3 (Cosmic Cathedral) & Epilogue
+  labyrinth.update(elapsed, dt, weights.ch2Weight, weights.voidOpacity, activeLeft, activeRight);
+
+  const unleashedShockwave = cathedral.update(elapsed, dt, weights.ch3Weight, activeLeft, activeRight);
+  if (unleashedShockwave) {
+    audio.playShockwaveBoom();
+  }
+
+  blossom.update(elapsed, weights.epilogueWeight);
+
   if (isDesktopMode) {
-    hudDebug.textContent = `overgrowth: ${Math.round(tripProgress * 100)}%`;
+    hudDebug.textContent = isTripping ? `timeline: ${tripTime.toFixed(1)}s` : 'wacht op elixir';
   }
 
   renderer.render(scene, camera);

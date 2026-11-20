@@ -202,6 +202,17 @@ export class ElixirBottle {
     return tagGroup;
   }
 
+  public reset(): void {
+    this.isGrabbed = false;
+    this.isDrunk = false;
+    this.fillLevel = 1.0;
+    this.dissolveTimer = 0;
+    this.group.visible = true;
+    this.group.scale.setScalar(1.0);
+    this.group.position.copy(this.restPosition);
+    this.group.rotation.set(0, 0, 0);
+  }
+
   /**
    * Place the bottle comfortably in front of the user's initial gaze
    */

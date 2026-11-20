@@ -218,12 +218,14 @@ export class SporeField {
     elapsed: number,
     dt: number,
     progress: number,
+    visibility: number,
     handLeft: THREE.Vector3 | null,
     handRight: THREE.Vector3 | null
   ): number {
-    this.pointsUniforms.uOpacity.value = THREE.MathUtils.smoothstep(progress, 0.04, 0.35);
+    this.group.visible = progress > 0.01 && visibility > 0.01;
+    this.pointsUniforms.uOpacity.value = THREE.MathUtils.smoothstep(progress, 0.04, 0.35) * visibility;
 
-    if (progress <= 0.01) {
+    if (!this.group.visible) {
       return 0;
     }
 
@@ -297,7 +299,7 @@ export class SporeField {
       // Smooth elastic ease-out
       const eased = 1 - Math.pow(1 - localP, 3);
       const breathe = 1.0 + Math.sin(elapsed * 1.8 + item.phase) * 0.04;
-      const s = Math.max(0.0001, eased * item.targetScale * breathe);
+      const s = Math.max(0.0001, eased * item.targetScale * breathe * visibility);
       item.group.scale.setScalar(s);
     }
 

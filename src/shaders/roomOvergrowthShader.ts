@@ -10,6 +10,7 @@ export interface RoomOvergrowthUniforms {
   uHandLeftActive: THREE.IUniform<number>;
   uHandRightActive: THREE.IUniform<number>;
   uVirtualRoomMode: THREE.IUniform<number>;
+  uVisibility: THREE.IUniform<number>;
 }
 
 const vertexShader = /* glsl */ `
@@ -35,6 +36,7 @@ const fragmentShader = /* glsl */ `
   uniform float uHandLeftActive;
   uniform float uHandRightActive;
   uniform float uVirtualRoomMode;
+  uniform float uVisibility;
 
   varying vec3 vWorldPos;
   varying vec3 vWorldNormal;
@@ -126,9 +128,9 @@ const fragmentShader = /* glsl */ `
     float veinIntensity = veins * 1.45 * pulse * growthMask;
 
     // Combine alpha for Passthrough (AR): completely transparent before drinking!
-    float effectAlpha = clamp(veinIntensity * 0.88 + mossAura + waveFront * 0.75 + handEnergy * 0.85, 0.0, 0.92);
+    float effectAlpha = clamp(veinIntensity * 0.88 + mossAura + waveFront * 0.75 + handEnergy * 0.85, 0.0, 0.92) * uVisibility;
 
-    vec3 finalColor = glowColor * (veinIntensity * 1.35 + mossAura * 0.85 + waveFront * 1.7 + handEnergy * 1.9);
+    vec3 finalColor = glowColor * (veinIntensity * 1.35 + mossAura * 0.85 + waveFront * 1.7 + handEnergy * 1.9) * uVisibility;
 
     // On Desktop Preview (no passthrough camera), render a subtle dim room shell underneath
     if (uVirtualRoomMode > 0.5) {
@@ -160,6 +162,7 @@ export function createRoomOvergrowthMaterial(): {
     uHandLeftActive: { value: 0 },
     uHandRightActive: { value: 0 },
     uVirtualRoomMode: { value: 0 },
+    uVisibility: { value: 1 },
   };
 
   const material = new THREE.ShaderMaterial({

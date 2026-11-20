@@ -71,15 +71,48 @@ export class AudioEngine {
   }
 
   /**
-   * Call every frame with trip intensity (0..1) to open up the ambient pad
+   * Call every frame with chapter weights (0..1) to evolve the ambient pad
    */
-  public setTripIntensity(progress: number): void {
+  public setChapterMood(ch1: number, ch2: number, ch3: number, epilogue: number): void {
     if (!this.ctx || !this.droneGain || !this.droneFilter) return;
     const now = this.ctx.currentTime;
-    const targetGain = 0.02 + progress * 0.28;
-    const targetCutoff = 160 + progress * 1150;
-    this.droneGain.gain.setTargetAtTime(targetGain, now, 0.35);
-    this.droneFilter.frequency.setTargetAtTime(targetCutoff, now, 0.4);
+
+    const energy = Math.min(1, ch1 * 0.65 + ch2 * 0.85 + ch3 * 1.0 + epilogue * 0.15);
+    const targetGain = 0.015 + energy * 0.32;
+    const targetCutoff = 160 + ch1 * 650 + ch2 * 1350 + ch3 * 1600 + epilogue * 180;
+    const targetQ = 1.8 + ch2 * 3.8 + ch3 * 1.2;
+
+    this.droneGain.gain.setTargetAtTime(targetGain, now, 0.4);
+    this.droneFilter.frequency.setTargetAtTime(targetCutoff, now, 0.45);
+    this.droneFilter.Q.setTargetAtTime(targetQ, now, 0.45);
+  }
+
+  /**
+   * Monumental bass + shimmering chord burst when unleashing the Chapter 3 shockwave
+   */
+  public playShockwaveBoom(): void {
+    if (!this.ctx || !this.masterGain) return;
+    const now = this.ctx.currentTime;
+
+    const sub = this.ctx.createOscillator();
+    const subGain = this.ctx.createGain();
+    sub.type = 'sine';
+    sub.frequency.setValueAtTime(140, now);
+    sub.frequency.exponentialRampToValueAtTime(34, now + 1.8);
+
+    subGain.gain.setValueAtTime(0.001, now);
+    subGain.gain.linearRampToValueAtTime(0.55, now + 0.04);
+    subGain.gain.exponentialRampToValueAtTime(0.0001, now + 2.6);
+
+    sub.connect(subGain);
+    subGain.connect(this.masterGain);
+    sub.start(now);
+    sub.stop(now + 2.7);
+
+    // Wide celestial fifths burst
+    [293.66, 440.0, 587.33, 880.0, 1174.66].forEach((freq, i) => {
+      this.playChimeAt(freq, now + i * 0.045, 0.09, 2.4);
+    });
   }
 
   /**
