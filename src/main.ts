@@ -247,17 +247,17 @@ function jumpToChapter(target: string): void {
     audio.playTripStart();
   } else if (target === 'chapter2') {
     phase = 'chapter2';
-    tripTime = T_CH1_END + 2.0;
+    tripTime = T_CH1_END + 6.5;
     bottle.isDrunk = true;
     bottle.group.visible = false;
   } else if (target === 'chapter3') {
     phase = 'chapter3';
-    tripTime = T_CH2_END + 2.0;
+    tripTime = T_CH2_END + 6.5;
     bottle.isDrunk = true;
     bottle.group.visible = false;
   } else if (target === 'epilogue') {
     phase = 'epilogue';
-    tripTime = T_CH3_END + 3.0;
+    tripTime = T_CH3_END + 7.5;
     bottle.isDrunk = true;
     bottle.group.visible = false;
   }
@@ -513,13 +513,15 @@ renderer.setAnimationLoop((_time: number, frame?: XRFrame) => {
   }
 
   // 4. Update Room Overgrowth (Chapter 1)
-  // Hide desktop fallback room shell while fully inside VR Chapters 2 & 3 so the infinite cosmos is unobstructed
+  // Smoothly fade out the desktop virtual room shell as the VR void opens in Chapter 2 & 3
+  const roomShellAlpha = 1.0 - weights.voidOpacity;
   if (isDesktopMode) {
-    roomManager.group.visible = weights.voidOpacity < 0.88;
+    roomManager.group.visible = roomShellAlpha > 0.01;
   }
   roomManager.uniforms.uTime.value = elapsed;
   roomManager.uniforms.uProgress.value = weights.ch1Progress;
   roomManager.uniforms.uVisibility.value = weights.ch1Weight;
+  roomManager.uniforms.uRoomShellAlpha.value = roomShellAlpha;
 
   if (activeLeft) {
     roomManager.uniforms.uHandLeft.value.copy(activeLeft);

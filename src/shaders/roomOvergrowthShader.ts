@@ -11,6 +11,7 @@ export interface RoomOvergrowthUniforms {
   uHandRightActive: THREE.IUniform<number>;
   uVirtualRoomMode: THREE.IUniform<number>;
   uVisibility: THREE.IUniform<number>;
+  uRoomShellAlpha: THREE.IUniform<number>;
 }
 
 const vertexShader = /* glsl */ `
@@ -37,6 +38,7 @@ const fragmentShader = /* glsl */ `
   uniform float uHandRightActive;
   uniform float uVirtualRoomMode;
   uniform float uVisibility;
+  uniform float uRoomShellAlpha;
 
   varying vec3 vWorldPos;
   varying vec3 vWorldNormal;
@@ -134,6 +136,7 @@ const fragmentShader = /* glsl */ `
 
     // On Desktop Preview (no passthrough camera), render a subtle dim room shell underneath
     if (uVirtualRoomMode > 0.5) {
+      if (uRoomShellAlpha < 0.01) discard;
       float grid = (
         smoothstep(0.96, 1.0, abs(sin(vWorldPos.x * 3.14159))) +
         smoothstep(0.96, 1.0, abs(sin(vWorldPos.z * 3.14159))) +
@@ -141,7 +144,7 @@ const fragmentShader = /* glsl */ `
       ) * 0.06;
       vec3 roomBase = vec3(0.045, 0.055, 0.08) + vec3(0.025, 0.035, 0.05) * abs(vWorldNormal.y) + vec3(grid);
       finalColor = mix(roomBase, finalColor + roomBase * 0.35, clamp(effectAlpha, 0.0, 1.0));
-      gl_FragColor = vec4(finalColor, 1.0);
+      gl_FragColor = vec4(finalColor, uRoomShellAlpha);
     } else {
       if (effectAlpha < 0.01) discard;
       gl_FragColor = vec4(finalColor, effectAlpha);
@@ -163,6 +166,7 @@ export function createRoomOvergrowthMaterial(): {
     uHandRightActive: { value: 0 },
     uVirtualRoomMode: { value: 0 },
     uVisibility: { value: 1 },
+    uRoomShellAlpha: { value: 1 },
   };
 
   const material = new THREE.ShaderMaterial({
